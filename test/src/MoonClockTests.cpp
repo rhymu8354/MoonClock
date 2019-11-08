@@ -508,11 +508,10 @@ TEST_F(Moon_Clock_Tests, Instrument_Single_Function) {
         lua,
         [](lua_State*){}
     );
-    const auto Foo = [](lua_State* lua) {
+    lua_pushcfunction(lua, [](lua_State* lua){
         lua_pushinteger(lua, lua_tointeger(lua, -1) * 2);
         return 1;
-    };
-    lua_pushcfunction(lua, Foo);
+    });
     lua_setglobal(lua, "foo");
     lua_getglobal(lua, "foo");
     lua_call(lua, 0, 0);
@@ -526,7 +525,10 @@ TEST_F(Moon_Clock_Tests, Instrument_Single_Function) {
     }
     moonClock.StopInstrumentation();
     lua_getglobal(lua, "foo");
-    lua_call(lua, 0, 0);
+    lua_pushinteger(lua, 42);
+    lua_call(lua, 1, 1);
+    EXPECT_EQ(84, lua_tointeger(lua, -1));
+    lua_pop(lua, 1);
     const auto report = moonClock.GenerateReport();
     EXPECT_EQ(
         std::vector< std::string >({

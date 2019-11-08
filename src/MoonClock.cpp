@@ -153,6 +153,12 @@ namespace MoonClock {
         Report report;
         std::shared_ptr< lua_State > lua;
 
+        /**
+         * This is the Lua registry index of the table of instrumented
+         * functions.
+         */
+        int luaRegistryIndex = 0;
+
         // Lifecycle management
 
         ~Impl() noexcept = default;
@@ -169,6 +175,9 @@ namespace MoonClock {
         Impl() = default;
 
         void StartInstrumentation(std::shared_ptr< lua_State > lua) {
+            if (luaRegistryIndex != 0) {
+                return;
+            }
             this->lua = lua;
             const auto self = (Impl**)lua_newuserdata(lua.get(), sizeof(Impl*)); // -1 = self
             *self = this;
@@ -217,10 +226,40 @@ namespace MoonClock {
                 lua_rawset(lua.get(), -3);// -1 = functions[i+1].table, -2 = instrumented_fn, -3 = functions[i+1].path, -4 = functions[i+1], -5 = functions, -6 = instrumentationFactory
                 lua_pop(lua.get(), 4); // -1 = functions, -2 = instrumentationFactory
             }
-            lua_pop(lua.get(), 2); // (stack empty)
+            luaRegistryIndex = luaL_ref(lua.get(), LUA_REGISTRYINDEX); // -1 = instrumentationFactory
+            lua_pop(lua.get(), 1); // (stack empty)
         }
 
         void StopInstrumentation() {
+            if (luaRegistryIndex == 0) {
+                return;
+            }
+            lua_rawgeti(lua.get(), LUA_REGISTRYINDEX, luaRegistryIndex); // -1 = functions
+            const auto numFunctions = lua_rawlen(lua.get(), -1);
+            for (size_t i = 0; i < numFunctions; ++i) {
+                // Look up the next function's information.
+                lua_pushinteger(lua.get(), i + 1); // -1 = i+1, -2 = functions
+                lua_rawget(lua.get(), -2); // -1 = functions[i+1], -2 = functions
+
+                // Get the path of the function to know its name.
+                lua_pushstring(lua.get(), "path"); // -1 = "path", -2 = functions[i+1], -3 = functions
+                lua_rawget(lua.get(), -2); // -1 = functions[i+1].path, -2 = functions[i+1], -3 = functions
+                lua_pushinteger(lua.get(), lua_rawlen(lua.get(), -1)); // -1 = #functions[i+1].path, -2 = functions[i+1].path, -3 = functions[i+1], -4 = functions
+                lua_rawget(lua.get(), -2); // -1 = functions[i+1].path[#functions[i+1].path], -2 = functions[i+1].path, -3 = functions[i+1], -4 = functions
+                lua_remove(lua.get(), -2); // -1 = functions[i+1].path[#functions[i+1].path], -2 = functions[i+1], -3 = functions
+
+                // Find the function and the table containing it, and reinstall
+                // the original function without its instrumented wrapper.
+                lua_pushstring(lua.get(), "fn"); // -1 = "fn", -2 = functions[i+1].path[#functions[i+1].path], -3 = functions[i+1], -4 = functions
+                lua_rawget(lua.get(), -3); // -1 = functions[i+1].fn, -2 = functions[i+1].path[#functions[i+1].path], -3 = functions[i+1], -4 = functions
+                lua_pushstring(lua.get(), "table"); // -1 = "table", -2 = functions[i+1].fn, -3 = functions[i+1].path[#functions[i+1].path], -4 = functions[i+1], -5 = functions
+                lua_rawget(lua.get(), -4); // -1 = functions[i+1].table, -2 = functions[i+1].fn, -3 = functions[i+1].path[#functions[i+1].path], -4 = functions[i+1], -5 = functions
+                lua_insert(lua.get(), -3); // -1 = functions[i+1].fn, -2 = functions[i+1].path[#functions[i+1].path], -3 = functions[i+1].table, -4 = functions[i+1], -5 = functions
+                lua_rawset(lua.get(), -3); // -1 = functions[i+1].table, -2 = functions[i+1], -3 = functions
+                lua_pop(lua.get(), 2); // -1 = functions
+            }
+            luaL_unref(lua.get(), LUA_REGISTRYINDEX, luaRegistryIndex);
+            luaRegistryIndex = 0;
         }
     };
 
