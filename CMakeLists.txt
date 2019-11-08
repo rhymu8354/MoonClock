@@ -26,4 +26,5 @@ target_link_libraries(${This} PUBLIC
     Timekeeping
 )
 
+add_subdirectory(example)
 add_subdirectory(test)
