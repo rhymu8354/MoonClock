@@ -23,6 +23,7 @@ target_include_directories(${This} PUBLIC include)
 target_link_libraries(${This} PUBLIC
     LuaLibrary
     SystemAbstractions
+    Timekeeping
 )
 
 add_subdirectory(test)

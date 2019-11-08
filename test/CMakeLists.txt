@@ -20,6 +20,7 @@ target_link_libraries(${This} PUBLIC
     gtest_main
     MoonClock
     SystemAbstractions
+    Timekeeping
 )
 
 add_test(

@@ -14,6 +14,7 @@
 #include <set>
 #include <string>
 #include <SystemAbstractions/StringExtensions.hpp>
+#include <Timekeeping/Clock.hpp>
 #include <vector>
 
 extern "C" {
@@ -169,6 +170,19 @@ namespace {
         return keys;
     }
 
+    struct MockClock : public Timekeeping::Clock {
+        // Properties
+
+        double time_ = 0.0;
+
+        // Methods
+
+        // Timekeeping::Clock
+        virtual double GetCurrentTime() override {
+            return time_;
+        }
+    };
+
 }
 
 /**
@@ -206,54 +220,6 @@ struct Moon_Clock_Tests
         lua_close(lua);
     }
 };
-
-TEST_F(Moon_Clock_Tests, Enumerate_Lua_Functions) {
-    const auto Foo = [](lua_State* lua) {
-        return 0;
-    };
-    lua_pushcfunction(lua, Foo);
-    lua_setglobal(lua, "foo");
-    const auto functionList = MoonClock::EnumerateLuaFunctions(lua);
-    std::set< std::string > functionSet(
-        functionList.begin(),
-        functionList.end()
-    );
-    EXPECT_EQ(
-        std::set< std::string >({
-            // Functions we defined in the test
-            "foo",
-
-            // Functions that come with the standard libraries.
-            // NOTE: We needed to include the standard libraries because
-            // MoonClock::EnumerateLuaFunction requires _G to exist in order
-            // to enumerate all globals.
-            "assert",
-            "collectgarbage",
-            "dofile",
-            "error",
-            "getmetatable",
-            "ipairs",
-            "load",
-            "loadfile",
-            "next",
-            "pairs",
-            "pcall",
-            "print",
-            "rawequal",
-            "rawget",
-            "rawlen",
-            "rawset",
-            "require",
-            "select",
-            "setmetatable",
-            "tonumber",
-            "tostring",
-            "type",
-            "xpcall",
-        }),
-        functionSet
-    );
-}
 
 TEST_F(Moon_Clock_Tests, Find_Functions_In_Composite_Lua_Table) {
     // Set up two tables, "foo" and "bar".  Place "bar" within "foo",
@@ -502,6 +468,82 @@ TEST_F(Moon_Clock_Tests, Find_Functions_In_Global_Variabes_Table) {
     EXPECT_TRUE(expectedPaths.empty()) << "Functions not found but expected: " << SystemAbstractions::Join(Keys(expectedPaths), ", ");
 }
 
+TEST_F(Moon_Clock_Tests, Default_Instruments) {
+    // Simulated test case:
+    // * We have two functions, "foo" and "bar".
+    // * "foo" calls "bar" twice.
+    //
+    // time   call             total time
+    //  1.0   -> foo
+    //  1.2            -> bar
+    //  1.3      foo <-        0.1
+    //  1.45           -> bar
+    //  1.5      foo <-        0.05
+    //  1.6   <-               0.6
+    //
+    MoonClock::MoonClock moonClock;
+    std::shared_ptr< lua_State > sharedLua(
+        lua,
+        [](lua_State*){}
+    );
+    const auto mockClock = std::make_shared< MockClock >();
+    moonClock.SetClock(mockClock);
+    moonClock.StartInstrumentation(sharedLua);
+    const auto context = moonClock.GetDefaultContext();
+    mockClock->time_ = 1.0;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"foo"});
+    mockClock->time_ = 1.2;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"bar"});
+    mockClock->time_ = 1.3;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"bar"});
+    mockClock->time_ = 1.45;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"bar"});
+    mockClock->time_ = 1.5;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"bar"});
+    mockClock->time_ = 1.6;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"foo"});
+    const auto report = moonClock.GenerateReport();
+    EXPECT_EQ(
+        (std::map< MoonClock::Path, MoonClock::FunctionInformation >({
+            {{"foo"}, {1, 0.6, 0.6, 0.6, {{{"bar"}, {2, 0.15}}}}},
+            {{"bar"}, {2, 0.05, 0.15, 0.1, {}}},
+        })),
+        report.functionInfo
+    );
+}
+
+TEST_F(Moon_Clock_Tests, Default_Instruments_Recursion) {
+    MoonClock::MoonClock moonClock;
+    std::shared_ptr< lua_State > sharedLua(
+        lua,
+        [](lua_State*){}
+    );
+    const auto mockClock = std::make_shared< MockClock >();
+    moonClock.SetClock(mockClock);
+    moonClock.StartInstrumentation(sharedLua);
+    const auto context = moonClock.GetDefaultContext();
+    mockClock->time_ = 1.0;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"foo"});
+    mockClock->time_ = 1.2;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"foo"});
+    mockClock->time_ = 1.3;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"foo"});
+    mockClock->time_ = 1.4;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"foo"});
+    auto report = moonClock.GenerateReport();
+    auto& fooInfo = report.functionInfo[{"foo"}];
+    EXPECT_EQ(2, fooInfo.numCalls);
+    EXPECT_NEAR(0.1, fooInfo.minTime, std::numeric_limits< decltype(fooInfo.minTime) >::epsilon() * 2);
+    EXPECT_NEAR(0.5, fooInfo.totalTime, std::numeric_limits< decltype(fooInfo.totalTime) >::epsilon() * 2);
+    EXPECT_NEAR(0.4, fooInfo.maxTime, std::numeric_limits< decltype(fooInfo.maxTime) >::epsilon() * 2);
+    EXPECT_EQ(
+        (std::map< MoonClock::Path, MoonClock::CallsInformation >({
+            {{"foo"}, {1, 0.1}},
+        })),
+        fooInfo.calls
+    );
+}
+
 TEST_F(Moon_Clock_Tests, Instrument_Single_Function) {
     MoonClock::MoonClock moonClock;
     std::shared_ptr< lua_State > sharedLua(
@@ -515,7 +557,22 @@ TEST_F(Moon_Clock_Tests, Instrument_Single_Function) {
     lua_setglobal(lua, "foo");
     lua_getglobal(lua, "foo");
     lua_call(lua, 0, 0);
-    moonClock.StartInstrumentation(sharedLua);
+    std::vector< std::string > lines;
+    const auto before = [](lua_State* lua, void* context, const MoonClock::Path& path) {
+        auto& lines = *(std::vector< std::string >*)context;
+        lines.push_back(
+            std::string("before: ")
+            + SystemAbstractions::Join(path, ".")
+        );
+    };
+    const auto after = [](lua_State* lua, void* context, const MoonClock::Path& path) {
+        auto& lines = *(std::vector< std::string >*)context;
+        lines.push_back(
+            std::string("after: ")
+            + SystemAbstractions::Join(path, ".")
+        );
+    };
+    moonClock.StartInstrumentation(sharedLua, before, after, &lines);
     for (size_t i = 0; i < 3; ++i) {
         lua_getglobal(lua, "foo");
         lua_pushinteger(lua, i);
@@ -529,13 +586,15 @@ TEST_F(Moon_Clock_Tests, Instrument_Single_Function) {
     lua_call(lua, 1, 1);
     EXPECT_EQ(84, lua_tointeger(lua, -1));
     lua_pop(lua, 1);
-    const auto report = moonClock.GenerateReport();
     EXPECT_EQ(
         std::vector< std::string >({
-            "foo",
-            "foo",
-            "foo",
+            "before: foo",
+            "after: foo",
+            "before: foo",
+            "after: foo",
+            "before: foo",
+            "after: foo",
         }),
-        report.lines
+        lines
     );
 }

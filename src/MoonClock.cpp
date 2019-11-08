@@ -6,8 +6,11 @@
  * © 2019 by Richard Walters
  */
 
+#include <limits>
+#include <math.h>
 #include <MoonClock/MoonClock.hpp>
 #include <set>
+#include <stack>
 #include <string>
 #include <SystemAbstractions/StringExtensions.hpp>
 #include <vector>
@@ -57,18 +60,57 @@ namespace {
 
 namespace MoonClock {
 
-    std::vector< std::string > EnumerateLuaFunctions(lua_State* lua) {
-        std::vector< std::string > functionNames;
-        lua_getglobal(lua, "_G"); // -1 = _G
-        lua_pushnil(lua);  // -1 = key, -2 = _G
-        while (lua_next(lua, -2) != 0) { // -1 = value, -2 = key, -3 = _G
-            if (lua_isfunction(lua, -1)) {
-                functionNames.push_back(lua_tostring(lua, -2));
+    bool CallsInformation::operator==(const CallsInformation& other) const {
+        return (
+            (numCalls == other.numCalls)
+            && (fabs(totalTime - other.totalTime) <= std::numeric_limits< decltype(totalTime) >::epsilon() * 2)
+        );
+    }
+
+    void PrintTo(
+        const CallsInformation& callsInformation,
+        std::ostream* os
+    ) {
+        *os << "{numCalls=" << callsInformation.numCalls;
+        *os << ", totalTime=" << callsInformation.totalTime;
+        *os << "}";
+    }
+
+    bool FunctionInformation::operator==(const FunctionInformation& other) const {
+        return (
+            (numCalls == other.numCalls)
+            && (fabs(minTime - other.minTime) <= std::numeric_limits< decltype(minTime) >::epsilon() * 2)
+            && (fabs(totalTime - other.totalTime) <= std::numeric_limits< decltype(totalTime) >::epsilon() * 2)
+            && (fabs(maxTime - other.maxTime) <= std::numeric_limits< decltype(maxTime) >::epsilon() * 2)
+            && (calls == other.calls)
+        );
+    }
+
+    void PrintTo(
+        const FunctionInformation& functionInformation,
+        std::ostream* os
+    ) {
+        *os << "{numCalls=" << functionInformation.numCalls;
+        *os << ", minTime=" << functionInformation.minTime;
+        *os << ", totalTime=" << functionInformation.totalTime;
+        *os << ", maxTime=" << functionInformation.maxTime;
+        *os << ", calls=";
+        *os << "(";
+        for (const auto& entry: functionInformation.calls) {
+            *os << "{ ";
+            bool isFirstStep = true;
+            for (const auto& step: entry.first) {
+                if (!isFirstStep) {
+                    *os << ", ";
+                }
+                isFirstStep = false;
+                *os << "\"" << step << "\"";
             }
-            lua_pop(lua, 1); // -1 = key, -2 = _G
-        } // -1 = _G
-        lua_pop(lua, 1);
-        return functionNames;
+            *os << " }, ";
+            PrintTo(entry.second, os);
+        }
+        *os << ")";
+        *os << "}";
     }
 
     void FindFunctionsInCompositeLuaTable(
@@ -144,14 +186,24 @@ namespace MoonClock {
         return false;
     }
 
-    /**
+   /**
      * This contains the private properties of a MoonClock instance.
      */
     struct MoonClock::Impl {
+        // Types
+
+        struct CallStackLocation {
+            double start = 0.0;
+            Path path;
+        };
+        using CallStack = std::stack< CallStackLocation >;
+
         // Properties
 
+        CallStack callStack;
         Report report;
         std::shared_ptr< lua_State > lua;
+        std::shared_ptr< Timekeeping::Clock > clock;
 
         /**
          * This is the Lua registry index of the table of instrumented
@@ -174,29 +226,43 @@ namespace MoonClock {
          */
         Impl() = default;
 
-        void StartInstrumentation(std::shared_ptr< lua_State > lua) {
+        void StartInstrumentation(
+            const std::shared_ptr< lua_State >& lua,
+            Instrument before,
+            Instrument after,
+            void* context
+        ) {
             if (luaRegistryIndex != 0) {
                 return;
             }
             this->lua = lua;
-            const auto self = (Impl**)lua_newuserdata(lua.get(), sizeof(Impl*)); // -1 = self
-            *self = this;
+            const auto beforeWrapper = (Instrument*)lua_newuserdata(lua.get(), sizeof(Instrument)); // -1 = beforeWrapper
+            *beforeWrapper = before;
+            const auto afterWrapper = (Instrument*)lua_newuserdata(lua.get(), sizeof(Instrument)); // -1 = afterWrapper, -2 = beforeWrapper
+            *afterWrapper = after;
+            const auto contextWrapper = (void**)lua_newuserdata(lua.get(), sizeof(void*)); // -1 = contextWrapper, -2 = afterWrapper, -3 = beforeWrapper
+            *contextWrapper = context;
             const auto instrumentationFactory = [](lua_State* lua){
                 const auto closure = [](lua_State* lua){
-                    const auto self = *(Impl**)lua_touserdata(lua, lua_upvalueindex(3));
+                    const auto before = *(Instrument*)lua_touserdata(lua, lua_upvalueindex(3));
+                    const auto after = *(Instrument*)lua_touserdata(lua, lua_upvalueindex(4));
+                    const auto context = *(void**)lua_touserdata(lua, lua_upvalueindex(5));
                     const auto path = ReadLuaStringList(lua, lua_upvalueindex(1));
-                    self->report.lines.push_back(SystemAbstractions::Join(path, "."));
+                    before(lua, context, path);
                     const auto numArgs = lua_gettop(lua);
                     lua_pushvalue(lua, lua_upvalueindex(2));
                     lua_insert(lua, 1);
                     lua_call(lua, numArgs, LUA_MULTRET);
+                    after(lua, context, path);
                     return lua_gettop(lua);
                 };
                 lua_pushvalue(lua, lua_upvalueindex(1));
-                lua_pushcclosure(lua, closure, 3);
+                lua_pushvalue(lua, lua_upvalueindex(2));
+                lua_pushvalue(lua, lua_upvalueindex(3));
+                lua_pushcclosure(lua, closure, 5);
                 return 1;
             };
-            lua_pushcclosure(lua.get(), instrumentationFactory, 1); // -1 = instrumentationFactory
+            lua_pushcclosure(lua.get(), instrumentationFactory, 3); // -1 = instrumentationFactory
             lua_getglobal(lua.get(), "_G"); // -1 = _G, -2 = instrumentationFactory
             FindFunctionsInCompositeLuaTable(lua.get(), -1); // -1 = functions, -2 = _G, -3 = instrumentationFactory
             lua_remove(lua.get(), -2); // -1 = functions, -2 = instrumentationFactory
@@ -260,6 +326,7 @@ namespace MoonClock {
             }
             luaL_unref(lua.get(), LUA_REGISTRYINDEX, luaRegistryIndex);
             luaRegistryIndex = 0;
+            lua.reset();
         }
     };
 
@@ -282,8 +349,58 @@ namespace MoonClock {
     {
     }
 
-    void MoonClock::StartInstrumentation(std::shared_ptr< lua_State > lua) {
-        impl_->StartInstrumentation(lua);
+    void MoonClock::DefaultBeforeInstrument(lua_State* lua, void* context, const Path& path) {
+        const auto self = (MoonClock::Impl*)context;
+        if (!self->callStack.empty()) {
+            const auto& callerCallStackEntry = self->callStack.top();
+            auto& callerFunctionInfo = self->report.functionInfo[callerCallStackEntry.path];
+            auto& calleeCallInfo = callerFunctionInfo.calls[path];
+            ++calleeCallInfo.numCalls;
+        }
+        auto& functionInfo = self->report.functionInfo[path];
+        ++functionInfo.numCalls;
+        Impl::CallStackLocation call;
+        call.start = self->clock->GetCurrentTime();
+        call.path = path;
+        self->callStack.push(std::move(call));
+    }
+
+    void MoonClock::DefaultAfterInstrument(lua_State* lua, void* context, const Path& path) {
+        const auto self = (MoonClock::Impl*)context;
+        const auto& call = self->callStack.top();
+        const auto finish = self->clock->GetCurrentTime();
+        auto& functionInfo = self->report.functionInfo[path];
+        const auto total = finish - call.start;
+        functionInfo.minTime = std::min(functionInfo.minTime, total);
+        functionInfo.totalTime += total;
+        functionInfo.maxTime = std::max(functionInfo.maxTime, total);
+        self->callStack.pop();
+        if (!self->callStack.empty()) {
+            const auto& callerCallStackEntry = self->callStack.top();
+            auto& callerFunctionInfo = self->report.functionInfo[callerCallStackEntry.path];
+            auto& calleeCallInfo = callerFunctionInfo.calls[path];
+            calleeCallInfo.totalTime += total;
+        }
+    }
+
+    void* MoonClock::GetDefaultContext() {
+        return impl_.get();
+    }
+
+    void MoonClock::SetClock(std::shared_ptr< Timekeeping::Clock > clock) {
+        impl_->clock = std::move(clock);
+    }
+
+    void MoonClock::StartInstrumentation(
+        const std::shared_ptr< lua_State >& lua,
+        Instrument before,
+        Instrument after,
+        void* context
+    ) {
+        if (context == nullptr) {
+            context = GetDefaultContext();
+        }
+        impl_->StartInstrumentation(lua, before, after, context);
     }
 
     void MoonClock::StopInstrumentation() {

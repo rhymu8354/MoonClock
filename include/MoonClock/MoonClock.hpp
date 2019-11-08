@@ -8,8 +8,13 @@
  * © 2019 by Richard Walters
  */
 
+#include <algorithm>
+#include <functional>
+#include <map>
 #include <memory>
+#include <sstream>
 #include <string>
+#include <Timekeeping/Clock.hpp>
 #include <vector>
 
 /**
@@ -20,7 +25,61 @@ struct lua_State;
 
 namespace MoonClock {
 
-    std::vector< std::string > EnumerateLuaFunctions(lua_State* lua);
+    using Path = std::vector< std::string >;
+    using Instrument = void (*)(lua_State* lua, void* context, const Path& path);
+
+    struct CallsInformation {
+        size_t numCalls = 0;
+        double totalTime = 0.0;
+
+        bool operator==(const CallsInformation& other) const;
+    };
+
+    /**
+     * This is a support function for Google Test to print out
+     * values of the CallsInformation structure.
+     *
+     * @param[in] CallsInformation
+     *     This is the function information value to print.
+     *
+     * @param[in] os
+     *     This points to the stream to which to print the
+     *     function information value.
+     */
+    void PrintTo(
+        const CallsInformation& callsInformation,
+        std::ostream* os
+    );
+
+    struct FunctionInformation {
+        size_t numCalls = 0;
+        double minTime = std::numeric_limits< decltype(minTime) >::max();
+        double totalTime = 0.0;
+        double maxTime = 0.0;
+        std::map< Path, CallsInformation > calls;
+
+        bool operator==(const FunctionInformation& other) const;
+    };
+
+    /**
+     * This is a support function for Google Test to print out
+     * values of the FunctionInformation structure.
+     *
+     * @param[in] functionInformation
+     *     This is the function information value to print.
+     *
+     * @param[in] os
+     *     This points to the stream to which to print the
+     *     function information value.
+     */
+    void PrintTo(
+        const FunctionInformation& functionInformation,
+        std::ostream* os
+    );
+
+    struct Report {
+        std::map< Path, FunctionInformation > functionInfo;
+    };
 
     /**
      * Search a Lua table's hierarchy for Lua functions.  Add to a result list
@@ -98,12 +157,6 @@ namespace MoonClock {
      * of Lua functions.
      */
     class MoonClock {
-        // Types
-    public:
-        struct Report {
-            std::vector< std::string > lines;
-        };
-
         // Lifecycle management
     public:
         ~MoonClock() noexcept;
@@ -119,7 +172,19 @@ namespace MoonClock {
          */
         MoonClock();
 
-        void StartInstrumentation(std::shared_ptr< lua_State > lua);
+        static void DefaultBeforeInstrument(lua_State* lua, void* context, const Path& path);
+        static void DefaultAfterInstrument(lua_State* lua, void* context, const Path& path);
+
+        void* GetDefaultContext();
+
+        void SetClock(std::shared_ptr< Timekeeping::Clock > clock);
+
+        void StartInstrumentation(
+            const std::shared_ptr< lua_State >& lua,
+            Instrument before = DefaultBeforeInstrument,
+            Instrument after = DefaultAfterInstrument,
+            void* context = nullptr
+        );
 
         void StopInstrumentation();
 
