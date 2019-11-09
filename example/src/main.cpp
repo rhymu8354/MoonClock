@@ -387,16 +387,16 @@ int main(int argc, char* argv[]) {
     }
     moonClock.StopInstrumentation();
     const auto report = moonClock.GenerateReport();
-    printf("------------------------------------------------------------------------------\n");
+    printf("-----------------------------------------------------------------------------------------\n");
     printf("Report:\n");
-    printf("------------------------------------------------------------------------------\n");
+    printf("-----------------------------------------------------------------------------------------\n");
     printf(
-        "%-20s  %5s  %-12s %-12s %-12s %-12s\n",
+        "%-20s %7s  %14s %14s %14s %14s\n",
         "FUNC", "#", "MIN", "MAX", "TOTAL", "AVG"
     );
     for (const auto& fn: report.functionInfo) {
         printf(
-            "%-20s  %5zu  %-12.8lf %-12.8lf %-12.8lf %-12.8lf\n",
+            "%-20s %7zu  %14.9lf %14.9lf %14.9lf %14.9lf\n",
             SystemAbstractions::Join(fn.first, ".").c_str(),
             fn.second.numCalls,
             fn.second.minTime,
@@ -406,7 +406,7 @@ int main(int argc, char* argv[]) {
         );
         for (const auto& subfn: fn.second.calls) {
             printf(
-                "  %-18s  %5zu  %-12s %-12s %-12.8lf %-12s\n",
+                "  %-18s %7zu  %14s %14s %14.9lf %14s\n",
                 SystemAbstractions::Join(subfn.first, ".").c_str(),
                 subfn.second.numCalls,
                 "",
@@ -416,6 +416,6 @@ int main(int argc, char* argv[]) {
             );
         }
     }
-    printf("------------------------------------------------------------------------------\n");
+    printf("-----------------------------------------------------------------------------------------\n");
     return EXIT_SUCCESS;
 }
