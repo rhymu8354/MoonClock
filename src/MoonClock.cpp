@@ -12,7 +12,7 @@
 #include <set>
 #include <stack>
 #include <string>
-#include <SystemAbstractions/StringExtensions.hpp>
+#include <StringExtensions/StringExtensions.hpp>
 #include <vector>
 
 extern "C" {

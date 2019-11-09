@@ -12,8 +12,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <StringExtensions/StringExtensions.hpp>
 #include <SystemAbstractions/File.hpp>
-#include <SystemAbstractions/StringExtensions.hpp>
 #include <SystemAbstractions/Time.hpp>
 
 extern "C" {
@@ -287,7 +287,7 @@ namespace {
                 errorMessage = "LUA_ERRGCMM";
             } break;
             default: {
-                errorMessage = SystemAbstractions::sprintf("(unexpected lua_load result: %d)", luaLoadResult);
+                errorMessage = StringExtensions::sprintf("(unexpected lua_load result: %d)", luaLoadResult);
             } break;
         }
         lua_settop(lua, 0);
@@ -397,7 +397,7 @@ int main(int argc, char* argv[]) {
     for (const auto& fn: report.functionInfo) {
         printf(
             "%-20s %7zu  %14.9lf %14.9lf %14.9lf %14.9lf\n",
-            SystemAbstractions::Join(fn.first, ".").c_str(),
+            StringExtensions::Join(fn.first, ".").c_str(),
             fn.second.numCalls,
             fn.second.minTime,
             fn.second.maxTime,
@@ -407,7 +407,7 @@ int main(int argc, char* argv[]) {
         for (const auto& subfn: fn.second.calls) {
             printf(
                 "  %-18s %7zu  %14s %14s %14.9lf %14s\n",
-                SystemAbstractions::Join(subfn.first, ".").c_str(),
+                StringExtensions::Join(subfn.first, ".").c_str(),
                 subfn.second.numCalls,
                 "",
                 "",

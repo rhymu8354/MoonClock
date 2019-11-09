@@ -13,7 +13,7 @@
 #include <MoonClock/MoonClock.hpp>
 #include <set>
 #include <string>
-#include <SystemAbstractions/StringExtensions.hpp>
+#include <StringExtensions/StringExtensions.hpp>
 #include <Timekeeping/Clock.hpp>
 #include <vector>
 
@@ -154,7 +154,7 @@ namespace {
         std::vector< std::string > keys;
         keys.reserve(map.size());
         for (const auto& entry: map) {
-            keys.push_back(SystemAbstractions::Join(entry.first, "."));
+            keys.push_back(StringExtensions::Join(entry.first, "."));
         }
         return keys;
     }
@@ -165,7 +165,7 @@ namespace {
         std::vector< std::string > keys;
         keys.reserve(set.size());
         for (const auto& entry: set) {
-            keys.push_back(SystemAbstractions::Join(entry, "."));
+            keys.push_back(StringExtensions::Join(entry, "."));
         }
         return keys;
     }
@@ -270,7 +270,7 @@ TEST_F(Moon_Clock_Tests, Find_Functions_In_Composite_Lua_Table) {
         lua_rawget(lua, -2); // -1 = results[i].path, -2 = results[i], -3 = results
         const auto path = ReadLuaStringList(lua, -1);
         const auto expectedResultsEntry = expectedResults.find(path);
-        ASSERT_FALSE(expectedResultsEntry == expectedResults.end()) << "Extra function found: " << SystemAbstractions::Join(path, ".");
+        ASSERT_FALSE(expectedResultsEntry == expectedResults.end()) << "Extra function found: " << StringExtensions::Join(path, ".");
         lua_pop(lua, 1); // -1 = results[i], -2 = results
         lua_pushstring(lua, "fn"); // -1 = "fn", -2 = results[i], -3 = results
         lua_rawget(lua, -2); // -1 = results[i].fn, -2 = results[i], -3 = results
@@ -286,7 +286,7 @@ TEST_F(Moon_Clock_Tests, Find_Functions_In_Composite_Lua_Table) {
         (void)expectedResults.erase(expectedResultsEntry);
     }
     lua_pop(lua, 1); // (stack empty)
-    EXPECT_TRUE(expectedResults.empty()) << "Functions not found but expected: " << SystemAbstractions::Join(Keys(expectedResults), ", ");
+    EXPECT_TRUE(expectedResults.empty()) << "Functions not found but expected: " << StringExtensions::Join(Keys(expectedResults), ", ");
 }
 
 TEST_F(Moon_Clock_Tests, Do_Not_Search) {
@@ -308,7 +308,7 @@ TEST_F(Moon_Clock_Tests, Do_Not_Search) {
         EXPECT_EQ(
             searchPath.second,
             MoonClock::DoNotSearch(lua, -1)
-        ) << SystemAbstractions::Join(searchPath.first, ".");
+        ) << StringExtensions::Join(searchPath.first, ".");
     }
 }
 
@@ -448,7 +448,7 @@ TEST_F(Moon_Clock_Tests, Find_Functions_In_Global_Variabes_Table) {
         lua_rawget(lua, -2); // -1 = results[i].path, -2 = results[i], -3 = results
         const auto path = ReadLuaStringList(lua, -1);
         const auto expectedPathsEntry = expectedPaths.find(path);
-        EXPECT_FALSE(expectedPathsEntry == expectedPaths.end()) << "Extra function found: " << SystemAbstractions::Join(path, ".");
+        EXPECT_FALSE(expectedPathsEntry == expectedPaths.end()) << "Extra function found: " << StringExtensions::Join(path, ".");
         if (expectedPathsEntry == expectedPaths.end()) {
             lua_pop(lua, 2); // -1 = results
             continue;
@@ -465,7 +465,7 @@ TEST_F(Moon_Clock_Tests, Find_Functions_In_Global_Variabes_Table) {
         (void)expectedPaths.erase(expectedPathsEntry);
     }
     lua_pop(lua, 1); // (stack empty)
-    EXPECT_TRUE(expectedPaths.empty()) << "Functions not found but expected: " << SystemAbstractions::Join(Keys(expectedPaths), ", ");
+    EXPECT_TRUE(expectedPaths.empty()) << "Functions not found but expected: " << StringExtensions::Join(Keys(expectedPaths), ", ");
 }
 
 TEST_F(Moon_Clock_Tests, Default_Instruments) {
@@ -562,14 +562,14 @@ TEST_F(Moon_Clock_Tests, Instrument_Single_Function) {
         auto& lines = *(std::vector< std::string >*)context;
         lines.push_back(
             std::string("before: ")
-            + SystemAbstractions::Join(path, ".")
+            + StringExtensions::Join(path, ".")
         );
     };
     const auto after = [](lua_State* lua, void* context, const MoonClock::Path& path) {
         auto& lines = *(std::vector< std::string >*)context;
         lines.push_back(
             std::string("after: ")
-            + SystemAbstractions::Join(path, ".")
+            + StringExtensions::Join(path, ".")
         );
     };
     moonClock.StartInstrumentation(sharedLua, before, after, &lines);
