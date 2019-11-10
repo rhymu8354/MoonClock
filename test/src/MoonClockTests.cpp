@@ -253,7 +253,7 @@ TEST_F(Moon_Clock_Tests, Find_Functions_In_Composite_Lua_Table) {
     lua_pushstring(lua, "spam"); // -1 = "spam", -2 = foo
     lua_pushcfunction(lua, Spam); // -1 = Spam, -2 = "spam", -3 = foo
     lua_rawset(lua, -3); // -1 = foo
-    MoonClock::FindFunctionsInCompositeLuaTable(lua, -1); // -1 = results, -2 = foo
+    MoonClock::FindFunctionsInComposite(lua, -1); // -1 = results, -2 = foo
     lua_remove(lua, -2); // -1 = results
     struct ExpectedResultsEntry {
         std::string functionResult; // the string the function should return
@@ -274,10 +274,78 @@ TEST_F(Moon_Clock_Tests, Find_Functions_In_Composite_Lua_Table) {
         lua_pop(lua, 1); // -1 = results[i], -2 = results
         lua_pushstring(lua, "fn"); // -1 = "fn", -2 = results[i], -3 = results
         lua_rawget(lua, -2); // -1 = results[i].fn, -2 = results[i], -3 = results
-        lua_pushstring(lua, "table"); // -1 = "table", -2 = results[i].fn, -3 = results[i], -4 = results
-        lua_rawget(lua, -3); // -1 = results[i].table, -2 = results[i].fn, -3 = results[i], -4 = results
-        lua_pushstring(lua, path[path.size() - 1].c_str()); // -1 = path[#path], -2 = results[i].table, -3 = results[i].fn, -4 = results[i], -5 = results
-        lua_rawget(lua, -2); // -1 = results[i].table[path[#path]], -2 = results[i].table, -3 = results[i].fn, -4 = results[i], -5 = results
+        lua_pushstring(lua, "parent"); // -1 = "parent", -2 = results[i].fn, -3 = results[i], -4 = results
+        lua_rawget(lua, -3); // -1 = results[i].parent, -2 = results[i].fn, -3 = results[i], -4 = results
+        lua_pushstring(lua, path[path.size() - 1].c_str()); // -1 = path[#path], -2 = results[i].parent, -3 = results[i].fn, -4 = results[i], -5 = results
+        lua_rawget(lua, -2); // -1 = results[i].parent[path[#path]], -2 = results[i].parent, -3 = results[i].fn, -4 = results[i], -5 = results
+        EXPECT_EQ(1, lua_compare(lua, -1, -3, LUA_OPEQ));
+        lua_pop(lua, 2); // -1 = results[i].fn, -2 = results[i], -3 = results
+        lua_call(lua, 0, 1); // -1 = results[i].fn(), -2 = results[i], -3 = results
+        EXPECT_EQ(expectedResultsEntry->second.functionResult, (std::string)lua_tostring(lua, -1));
+        lua_pop(lua, 2); // -1 = results
+        (void)expectedResults.erase(expectedResultsEntry);
+    }
+    lua_pop(lua, 1); // (stack empty)
+    EXPECT_TRUE(expectedResults.empty()) << "Functions not found but expected: " << StringExtensions::Join(Keys(expectedResults), ", ");
+}
+
+TEST_F(Moon_Clock_Tests, Find_Functions_In_Lua_Userdata) {
+    lua_newuserdata(lua, sizeof(void*));
+    lua_newtable(lua);
+    lua_pushstring(lua, "__pairs");
+    lua_pushvalue(lua, -2);
+    lua_pushcclosure(
+        lua,
+        [](lua_State* lua){
+            lua_getglobal(lua, "next");
+            lua_pushvalue(lua, lua_upvalueindex(1));
+            lua_pushnil(lua);
+            return 3;
+        },
+        1
+    );
+    lua_rawset(lua, -3);
+    lua_pushstring(lua, "__index");
+    lua_pushvalue(lua, -2);
+    lua_rawset(lua, -3);
+    lua_pushstring(lua, "__newindex");
+    lua_pushvalue(lua, -2);
+    lua_rawset(lua, -3);
+    lua_pushstring(lua, "foo");
+    lua_pushcfunction(lua, [](lua_State* lua){
+        lua_pushstring(lua, "FOO");
+        return 1;
+    });
+    lua_rawset(lua, -3);
+    lua_setmetatable(lua, -2);
+    MoonClock::FindFunctionsInComposite(lua, -1); // -1 = results, -2 = userdata
+    lua_remove(lua, -2); // -1 = results
+    struct ExpectedResultsEntry {
+        std::string functionResult; // the string the function should return
+    };
+    std::map< std::vector< std::string >, ExpectedResultsEntry > expectedResults{
+        {{"foo"}, {"FOO"}},
+    };
+    const auto numResults = (int)lua_rawlen(lua, -1);
+    for (int i = 1; i <= numResults; ++i) {
+        lua_pushinteger(lua, i); // -1 = i, -2 = results
+        lua_rawget(lua, -2); // -1 = results[i], -2 = results
+        lua_pushstring(lua, "path"); // -1 = "path", -2 = results[i], -3 = results
+        lua_rawget(lua, -2); // -1 = results[i].path, -2 = results[i], -3 = results
+        const auto path = ReadLuaStringList(lua, -1);
+        const auto expectedResultsEntry = expectedResults.find(path);
+        EXPECT_FALSE(expectedResultsEntry == expectedResults.end()) << "Extra function found: " << StringExtensions::Join(path, ".");
+        if (expectedResultsEntry == expectedResults.end()) {
+            lua_pop(lua, 2); // -1 = results
+            continue;
+        }
+        lua_pop(lua, 1); // -1 = results[i], -2 = results
+        lua_pushstring(lua, "fn"); // -1 = "fn", -2 = results[i], -3 = results
+        lua_rawget(lua, -2); // -1 = results[i].fn, -2 = results[i], -3 = results
+        lua_pushstring(lua, "parent"); // -1 = "parent", -2 = results[i].fn, -3 = results[i], -4 = results
+        lua_rawget(lua, -3); // -1 = results[i].parent, -2 = results[i].fn, -3 = results[i], -4 = results
+        lua_pushstring(lua, path[path.size() - 1].c_str()); // -1 = path[#path], -2 = results[i].parent, -3 = results[i].fn, -4 = results[i], -5 = results
+        lua_gettable(lua, -2); // -1 = results[i].parent[path[#path]], -2 = results[i].parent, -3 = results[i].fn, -4 = results[i], -5 = results
         EXPECT_EQ(1, lua_compare(lua, -1, -3, LUA_OPEQ));
         lua_pop(lua, 2); // -1 = results[i].fn, -2 = results[i], -3 = results
         lua_call(lua, 0, 1); // -1 = results[i].fn(), -2 = results[i], -3 = results
@@ -312,9 +380,9 @@ TEST_F(Moon_Clock_Tests, Do_Not_Search) {
     }
 }
 
-TEST_F(Moon_Clock_Tests, Find_Functions_In_Global_Variabes_Table) {
+TEST_F(Moon_Clock_Tests, Find_Functions_In_Global_Variables_Table) {
     lua_getglobal(lua, "_G"); // -1 = _G
-    MoonClock::FindFunctionsInCompositeLuaTable(lua, -1); // -1 = results, -2 = _G
+    MoonClock::FindFunctionsInComposite(lua, -1); // -1 = results, -2 = _G
     lua_remove(lua, -2); // -1 = results
     std::set< std::vector< std::string > > expectedPaths{
         {"assert"},
@@ -456,10 +524,10 @@ TEST_F(Moon_Clock_Tests, Find_Functions_In_Global_Variabes_Table) {
         lua_pop(lua, 1); // -1 = results[i], -2 = results
         lua_pushstring(lua, "fn"); // -1 = "fn", -2 = results[i], -3 = results
         lua_rawget(lua, -2); // -1 = results[i].fn, -2 = results[i], -3 = results
-        lua_pushstring(lua, "table"); // -1 = "table", -2 = results[i].fn, -3 = results[i], -4 = results
-        lua_rawget(lua, -3); // -1 = results[i].table, -2 = results[i].fn, -3 = results[i], -4 = results
-        lua_pushstring(lua, path[path.size() - 1].c_str()); // -1 = path[#path], -2 = results[i].table, -3 = results[i].fn, -4 = results[i], -5 = results
-        lua_rawget(lua, -2); // -1 = results[i].table[path[#path]], -2 = results[i].table, -3 = results[i].fn, -4 = results[i], -5 = results
+        lua_pushstring(lua, "parent"); // -1 = "parent", -2 = results[i].fn, -3 = results[i], -4 = results
+        lua_rawget(lua, -3); // -1 = results[i].parent, -2 = results[i].fn, -3 = results[i], -4 = results
+        lua_pushstring(lua, path[path.size() - 1].c_str()); // -1 = path[#path], -2 = results[i].parent, -3 = results[i].fn, -4 = results[i], -5 = results
+        lua_rawget(lua, -2); // -1 = results[i].parent[path[#path]], -2 = results[i].parent, -3 = results[i].fn, -4 = results[i], -5 = results
         EXPECT_EQ(1, lua_compare(lua, -1, -3, LUA_OPEQ));
         lua_pop(lua, 4); // -1 = results
         (void)expectedPaths.erase(expectedPathsEntry);
@@ -594,6 +662,91 @@ TEST_F(Moon_Clock_Tests, Instrument_Single_Function) {
             "after: foo",
             "before: foo",
             "after: foo",
+        }),
+        lines
+    );
+}
+
+TEST_F(Moon_Clock_Tests, Instrument_Function_Found_In_Userdata) {
+    MoonClock::MoonClock moonClock;
+    std::shared_ptr< lua_State > sharedLua(
+        lua,
+        [](lua_State*){}
+    );
+    lua_newuserdata(lua, sizeof(void*));
+    lua_newtable(lua);
+    lua_pushstring(lua, "__pairs");
+    lua_pushvalue(lua, -2);
+    lua_pushcclosure(
+        lua,
+        [](lua_State* lua){
+            lua_getglobal(lua, "next");
+            lua_pushvalue(lua, lua_upvalueindex(1));
+            lua_pushnil(lua);
+            return 3;
+        },
+        1
+    );
+    lua_rawset(lua, -3);
+    lua_pushstring(lua, "__index");
+    lua_pushvalue(lua, -2);
+    lua_rawset(lua, -3);
+    lua_pushstring(lua, "__newindex");
+    lua_pushvalue(lua, -2);
+    lua_rawset(lua, -3);
+    lua_pushstring(lua, "bar");
+    lua_pushcfunction(lua, [](lua_State* lua){
+        lua_pushinteger(lua, lua_tointeger(lua, -1) * 2);
+        return 1;
+    });
+    lua_rawset(lua, -3);
+    lua_setmetatable(lua, -2);
+    lua_setglobal(lua, "foo");
+    lua_getglobal(lua, "foo");
+    lua_getfield(lua, -1, "bar");
+    lua_remove(lua, -2);
+    lua_call(lua, 0, 0);
+    std::vector< std::string > lines;
+    const auto before = [](lua_State* lua, void* context, const MoonClock::Path& path) {
+        auto& lines = *(std::vector< std::string >*)context;
+        lines.push_back(
+            std::string("before: ")
+            + StringExtensions::Join(path, ".")
+        );
+    };
+    const auto after = [](lua_State* lua, void* context, const MoonClock::Path& path) {
+        auto& lines = *(std::vector< std::string >*)context;
+        lines.push_back(
+            std::string("after: ")
+            + StringExtensions::Join(path, ".")
+        );
+    };
+    moonClock.StartInstrumentation(sharedLua, before, after, &lines);
+    for (size_t i = 0; i < 3; ++i) {
+        lua_getglobal(lua, "foo");
+        lua_getfield(lua, -1, "bar");
+        lua_remove(lua, -2);
+        lua_pushinteger(lua, i);
+        lua_call(lua, 1, 1);
+        EXPECT_EQ(i * 2, lua_tointeger(lua, -1));
+        lua_pop(lua, 1);
+    }
+    moonClock.StopInstrumentation();
+    lua_getglobal(lua, "foo");
+    lua_getfield(lua, -1, "bar");
+    lua_remove(lua, -2);
+    lua_pushinteger(lua, 42);
+    lua_call(lua, 1, 1);
+    EXPECT_EQ(84, lua_tointeger(lua, -1));
+    lua_pop(lua, 1);
+    EXPECT_EQ(
+        std::vector< std::string >({
+            "before: foo.bar",
+            "after: foo.bar",
+            "before: foo.bar",
+            "after: foo.bar",
+            "before: foo.bar",
+            "after: foo.bar",
         }),
         lines
     );

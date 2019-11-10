@@ -25,13 +25,54 @@ struct lua_State;
 
 namespace MoonClock {
 
+    /**
+     * This type is used to represent the path to a Lua function from
+     * a reference point such as the global Lua variables.
+     */
     using Path = std::vector< std::string >;
+
+    /**
+     * This is the type of function which can be called either before or
+     * after an instrumented Lua function, to perform the instrumentation.
+     *
+     * @param[in,out] lua
+     *     This points to the Lua interpreter's state.
+     *
+     * @param[in,out] context
+     *     This points to context information shared by the instrumentation.
+     *
+     * @param[in] path
+     *     This represents the path to the Lua function being instrumented,
+     *     from a reference point such as the global Lua variables.
+     */
     using Instrument = void (*)(lua_State* lua, void* context, const Path& path);
 
+    /**
+     * This collects information about other Lua functions called from a given
+     * Lua function.
+     */
     struct CallsInformation {
+        /**
+         * This is the number of times the function was called by the caller.
+         */
         size_t numCalls = 0;
+
+        /**
+         * This is the total amount of time elapsed, in seconds, during
+         * all calls to this function from the caller.
+         */
         double totalTime = 0.0;
 
+        /**
+         * This is the equality operator.
+         *
+         * @param[in] other
+         *     This is the other value to which to compare the subject.
+         *
+         * @return
+         *     An indication of whether or not the two values are equal
+         *     is returned.
+         */
         bool operator==(const CallsInformation& other) const;
     };
 
@@ -51,13 +92,49 @@ namespace MoonClock {
         std::ostream* os
     );
 
+    /**
+     * This collects information about a Lua function called.
+     */
     struct FunctionInformation {
+        /**
+         * This is the number of times the function was called.
+         */
         size_t numCalls = 0;
+
+        /**
+         * This is the amount of time elapsed, in seconds, during the call
+         * which took the least amount of time.
+         */
         double minTime = std::numeric_limits< decltype(minTime) >::max();
+
+        /**
+         * This is the total amount of time elapsed, in seconds, during
+         * all calls to this function.
+         */
         double totalTime = 0.0;
+
+        /**
+         * This is the amount of time elapsed, in seconds, during the call
+         * which took the most amount of time.
+         */
         double maxTime = 0.0;
+
+        /**
+         * This holds information about all the Lua functions called
+         * from this function.
+         */
         std::map< Path, CallsInformation > calls;
 
+        /**
+         * This is the equality operator.
+         *
+         * @param[in] other
+         *     This is the other value to which to compare the subject.
+         *
+         * @return
+         *     An indication of whether or not the two values are equal
+         *     is returned.
+         */
         bool operator==(const FunctionInformation& other) const;
     };
 
@@ -77,15 +154,23 @@ namespace MoonClock {
         std::ostream* os
     );
 
+    /**
+     * This holds all information collected by the default instruments,
+     * if they are used.
+     */
     struct Report {
+        /**
+         * This holds information about each Lua function called.
+         */
         std::map< Path, FunctionInformation > functionInfo;
     };
 
     /**
-     * Search a Lua table's hierarchy for Lua functions.  Add to a result list
-     * table, each containing the following, one for every function found
-     * within the table hierarchy:
-     * - table: the table containing the function (could be nested)
+     * Search a Lua composite (table or value supporting the __pairs, __index,
+     * and __newindex metamethods) hierarchy for Lua functions.  Push onto the
+     * Lua stack a list of tables, each containing the following, one for every
+     * function found within the hierarchy:
+     * - parent: the composite containing the function (could be nested)
      * - path: list of table keys to use to locate the function within
      *         the table hierarchy
      * - fn: the function itself
@@ -93,64 +178,33 @@ namespace MoonClock {
      * @param[in] lua
      *     This is the state of the Lua interpreter to use.
      *
-     * @param[in] tableIndex
-     *     This is the index into the Lua stack where the table to search
-     *     can be found.
-     *
-     * @param[in] resultsIndex
-     *     This is the index into the Lua stack where the table to which
-     *     results should be added can be found.
-     *
-     * @param[in,out] path
-     *     This is used to keep track of the current path through the
-     *     table hierarchy.
-     */
-    void FindFunctionsInCompositeLuaTable(
-        lua_State* lua,
-        int tableIndex,
-        int resultsIndex,
-        std::vector< std::string >& path
-    );
-
-    /**
-     * Search a Lua table's hierarchy for Lua functions.  Push onto the Lua
-     * stack a list of tables, each containing the following, one for every
-     * function found within the table hierarchy:
-     * - table: the table containing the function (could be nested)
-     * - path: list of table keys to use to locate the function within
-     *         the table hierarchy
-     * - fn: the function itself
-     *
-     * @param[in] lua
-     *     This is the state of the Lua interpreter to use.
-     *
-     * @param[in] tableIndex
-     *     This is the index into the Lua stack where the table to search
+     * @param[in] compositeIndex
+     *     This is the index into the Lua stack where the composite to search
      *     can be found.
      */
-    void FindFunctionsInCompositeLuaTable(lua_State* lua, int tableIndex);
+    void FindFunctionsInComposite(lua_State* lua, int compositeIndex);
 
     /**
-     * Determine whether or not the given table should be searched for
-     * functions to instrument, if encountered as nested tables.
+     * Determine whether or not the given composite should be searched for
+     * functions to instrument, if encountered as nested composites.
      *
-     * Some tables, such as _G and package.loaded, should not be searched
-     * because they are referenced from other tables.  Other tables,
+     * Some composites, such as _G and package.loaded, should not be searched
+     * because they are referenced from other composites.  Other composites,
      * such as package.searchers, should not be searched because modifying
      * functions in them alters the way Lua itself functions.
      *
      * @param[in] lua
      *     This is the state of the Lua interpreter to use.
      *
-     * @param[in] tableIndex
-     *     This is the index into the Lua stack where the table to search
+     * @param[in] compositeIndex
+     *     This is the index into the Lua stack where the composite to search
      *     can be found.
      *
      * @return
-     *     If the given table should not be searched for functions to
+     *     If the given composite should not be searched for functions to
      *     instrument, true is returned.  Otherwise, false is returned.
      */
-    bool DoNotSearch(lua_State* lua, int tableIndex);
+    bool DoNotSearch(lua_State* lua, int compositeIndex);
 
     /**
      * This class represents a suite of tools used to measure the performance
@@ -172,13 +226,90 @@ namespace MoonClock {
          */
         MoonClock();
 
+        /**
+         * This is the default instrumentation to apply at the beginning
+         * of each Lua function call.
+         *
+         * @param[in,out] lua
+         *     This points to the Lua interpreter's state.
+         *
+         * @param[in,out] context
+         *     This points to context information shared by the
+         *     instrumentation, which must be the value returned by the
+         *     GetDefaultContext method.
+         *
+         * @param[in] path
+         *     This represents the path to the Lua function being instrumented,
+         *     from a reference point such as the global Lua variables.
+         */
         static void DefaultBeforeInstrument(lua_State* lua, void* context, const Path& path);
+
+        /**
+         * This is the default instrumentation to apply at the end
+         * of each Lua function call.
+         *
+         * @param[in,out] lua
+         *     This points to the Lua interpreter's state.
+         *
+         * @param[in,out] context
+         *     This points to context information shared by the
+         *     instrumentation, which must be the value returned by the
+         *     GetDefaultContext method.
+         *
+         * @param[in] path
+         *     This represents the path to the Lua function being instrumented,
+         *     from a reference point such as the global Lua variables.
+         */
         static void DefaultAfterInstrument(lua_State* lua, void* context, const Path& path);
 
+        /**
+         * Return the context to use when using the default
+         * before/after instruments.
+         *
+         * @return
+         *     The context ot use when using the default before/after
+         *     instruments is returned.
+         */
         void* GetDefaultContext();
 
+        /**
+         * Set the object the default instruments should use
+         * to measure real time.  It must be called before
+         * StartInstrumentation if the default instruments are used.
+         *
+         * @param[in] clock
+         *     This is the object the default instruments should use
+         *     to measure real time.
+         */
         void SetClock(std::shared_ptr< Timekeeping::Clock > clock);
 
+        /**
+         * Attach instruments to all Lua functions.  The default instruments
+         * collect the information returned by GenerateReport.  Any Lua
+         * functions called after this function returns, and before the
+         * StopInstrumentation function is called, will invoke the
+         * given instrumentation.
+         *
+         * @note
+         *     If the default instrumentation is used, SetClock must be
+         *     called first to provide the means of measuring real time.
+         *
+         * @parma[in,out] lua
+         *     This points to the Lua interpreter's state.
+         *
+         * @param[in] before
+         *     This is the instrumentation to apply at the beginning
+         *     of each Lua function call.
+         *
+         * @param[in] after
+         *     This is the instrumentation to apply at the end
+         *     of each Lua function call.
+         *
+         * @param[in] context
+         *     This is the pointer to provide to the before and after
+         *     instruments whenever they are called.  If nullptr,
+         *     the value returned by GetDefaultContext is returned.
+         */
         void StartInstrumentation(
             const std::shared_ptr< lua_State >& lua,
             Instrument before = DefaultBeforeInstrument,
@@ -186,8 +317,26 @@ namespace MoonClock {
             void* context = nullptr
         );
 
+        /**
+         * Remove any instrumentation applied by the last StartInstrumentation
+         * function call.
+         */
         void StopInstrumentation();
 
+        /**
+         * Return a copy of the information collected by the default
+         * instrumentation, if it was used.
+         *
+         * @note
+         *     This function returns no useful information if the default
+         *     instrumentation was not used with the StartInstrumentation
+         *     call, or if StartInstrumentation and StopInstrumentation were
+         *     not called.
+         *
+         * @return
+         *     A copy of the information collected by the default
+         *     instrumentation is returned.
+         */
         Report GenerateReport() const;
 
         // Private properties
