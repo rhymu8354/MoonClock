@@ -288,7 +288,8 @@ namespace {
             path.push_back(lua_tostring(lua, -2));
             FindFunctionsInCompositeLuaMeta(lua, -1, resultsIndex, path);
             path.pop_back();
-        } else if (lua_istable(lua, -1)) {
+        }
+        if (lua_istable(lua, -1)) {
             path.push_back(lua_tostring(lua, -2));
             FindFunctionsInCompositeLuaTable(lua, -1, resultsIndex, path);
             path.pop_back();
@@ -465,6 +466,12 @@ namespace MoonClock {
         std::shared_ptr< Timekeeping::Clock > clock;
 
         /**
+         * This is the time, according to the object used to measure real-time,
+         * when instrumentation of the Lua functions was started.
+         */
+        double startTime = 0.0;
+
+        /**
          * This is the Lua registry index of the table of instrumented
          * functions.
          */
@@ -571,6 +578,9 @@ namespace MoonClock {
             }
             luaRegistryIndex = luaL_ref(lua.get(), LUA_REGISTRYINDEX); // -1 = instrumentationFactory
             lua_pop(lua.get(), 1); // (stack empty)
+            if (clock != nullptr) {
+                startTime = clock->GetCurrentTime();
+            }
         }
 
         /**
@@ -580,6 +590,10 @@ namespace MoonClock {
         void StopInstrumentation() {
             if (luaRegistryIndex == 0) {
                 return;
+            }
+            if (clock != nullptr) {
+                const auto stopTime = clock->GetCurrentTime();
+                report.totalTime = stopTime - startTime;
             }
             lua_rawgeti(lua.get(), LUA_REGISTRYINDEX, luaRegistryIndex); // -1 = functions
             const auto numFunctions = lua_rawlen(lua.get(), -1);
