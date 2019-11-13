@@ -542,12 +542,14 @@ TEST_F(Moon_Clock_Tests, Default_Instruments) {
     // * "foo" calls "bar" twice.
     //
     // time   call             total time
+    //  0.5   (start instrumentation)
     //  1.0   -> foo
     //  1.2            -> bar
     //  1.3      foo <-        0.1
     //  1.45           -> bar
     //  1.5      foo <-        0.05
     //  1.6   <-               0.6
+    //  1.7   (stop instrumentation)
     //
     MoonClock::MoonClock moonClock;
     std::shared_ptr< lua_State > sharedLua(
@@ -556,6 +558,7 @@ TEST_F(Moon_Clock_Tests, Default_Instruments) {
     );
     const auto mockClock = std::make_shared< MockClock >();
     moonClock.SetClock(mockClock);
+    mockClock->time_ = 0.5;
     moonClock.StartInstrumentation(sharedLua);
     const auto context = moonClock.GetDefaultContext();
     mockClock->time_ = 1.0;
@@ -570,6 +573,8 @@ TEST_F(Moon_Clock_Tests, Default_Instruments) {
     MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"bar"});
     mockClock->time_ = 1.6;
     MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"foo"});
+    mockClock->time_ = 1.7;
+    moonClock.StopInstrumentation();
     const auto report = moonClock.GenerateReport();
     EXPECT_EQ(
         (std::map< MoonClock::Path, MoonClock::FunctionInformation >({
@@ -578,6 +583,7 @@ TEST_F(Moon_Clock_Tests, Default_Instruments) {
         })),
         report.functionInfo
     );
+    EXPECT_NEAR(1.2, report.totalTime, std::numeric_limits< decltype(report.totalTime) >::epsilon() * 2);
 }
 
 TEST_F(Moon_Clock_Tests, Default_Instruments_Recursion) {

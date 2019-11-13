@@ -163,6 +163,12 @@ namespace MoonClock {
          * This holds information about each Lua function called.
          */
         std::map< Path, FunctionInformation > functionInfo;
+
+        /**
+         * This records the total amount of time that elapsed while
+         * the Lua functions were instrumented.
+         */
+        double totalTime = 0.0;
     };
 
     /**
