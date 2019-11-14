@@ -243,7 +243,7 @@ namespace {
      */
     std::string LoadFile(const std::string& filePath) {
         SystemAbstractions::File file(filePath);
-        if (!file.Open()) {
+        if (!file.OpenReadOnly()) {
             fprintf(stderr, "Unable to open file '%s'\n", filePath.c_str());
             return "";
         }
