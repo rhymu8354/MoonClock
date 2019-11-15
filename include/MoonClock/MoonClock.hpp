@@ -63,6 +63,10 @@ namespace MoonClock {
          */
         double totalTime = 0.0;
 
+        CallsInformation() = default;
+
+        CallsInformation(size_t numCalls, double totalTime);
+
         /**
          * This is the equality operator.
          *
@@ -124,6 +128,16 @@ namespace MoonClock {
          * from this function.
          */
         std::map< Path, CallsInformation > calls;
+
+        FunctionInformation() = default;
+
+        FunctionInformation(
+            size_t numCalls,
+            double minTime,
+            double totalTime,
+            double maxTime,
+            std::map< Path, CallsInformation >&& calls
+        );
 
         /**
          * This is the equality operator.

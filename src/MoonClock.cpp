@@ -316,6 +316,12 @@ namespace {
 
 namespace MoonClock {
 
+    CallsInformation::CallsInformation(size_t numCalls, double totalTime)
+        : numCalls(numCalls)
+        , totalTime(totalTime)
+    {
+    }
+
     bool CallsInformation::operator==(const CallsInformation& other) const {
         return (
             (numCalls == other.numCalls)
@@ -330,6 +336,21 @@ namespace MoonClock {
         *os << "{numCalls=" << callsInformation.numCalls;
         *os << ", totalTime=" << callsInformation.totalTime;
         *os << "}";
+    }
+
+    FunctionInformation::FunctionInformation(
+        size_t numCalls,
+        double minTime,
+        double totalTime,
+        double maxTime,
+        std::map< Path, CallsInformation >&& calls
+    )
+        : numCalls(numCalls)
+        , minTime(minTime)
+        , totalTime(totalTime)
+        , maxTime(maxTime)
+        , calls(std::move(calls))
+    {
     }
 
     bool FunctionInformation::operator==(const FunctionInformation& other) const {
