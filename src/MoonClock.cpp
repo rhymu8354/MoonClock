@@ -502,7 +502,7 @@ namespace MoonClock {
 
         ~Impl() noexcept = default;
         Impl(const Impl&) = delete;
-        Impl(Impl&&) noexcept = default;
+        Impl(Impl&&) = default;
         Impl& operator=(const Impl&) = delete;
         Impl& operator=(Impl&&) noexcept = default;
 
