@@ -602,6 +602,7 @@ namespace MoonClock {
             if (clock != nullptr) {
                 startTime = clock->GetCurrentTime();
             }
+            report.functionInfo.clear();
         }
 
         /**

@@ -586,6 +586,82 @@ TEST_F(Moon_Clock_Tests, Default_Instruments) {
     EXPECT_NEAR(1.2, report.totalTime, std::numeric_limits< decltype(report.totalTime) >::epsilon() * 2);
 }
 
+TEST_F(Moon_Clock_Tests, Default_Instruments_Second_Run) {
+    // Simulated test case:
+    // * We have two functions, "foo" and "bar".
+    // * "foo" calls "bar" twice.
+    //
+    // time   call             total time
+    //  0.5   (start instrumentation)
+    //  1.0   -> foo
+    //  1.2            -> bar
+    //  1.3      foo <-        0.1
+    //  1.45           -> bar
+    //  1.5      foo <-        0.05
+    //  1.6   <-               0.6
+    //  1.7   (stop instrumentation)
+    //
+    //  1.8   (start instrumentation)
+    //  1.9   -> foo
+    //  2.0            -> bar
+    //  2.1      foo <-        0.1
+    //  2.2            -> bar
+    //  2.3      foo <-        0.1
+    //  2.4   <-               0.5
+    //  2.5   (stop instrumentation)
+    MoonClock::MoonClock moonClock;
+    std::shared_ptr< lua_State > sharedLua(
+        lua,
+        [](lua_State*){}
+    );
+    const auto mockClock = std::make_shared< MockClock >();
+    moonClock.SetClock(mockClock);
+    mockClock->time_ = 0.5;
+    moonClock.StartInstrumentation(sharedLua);
+    auto context = moonClock.GetDefaultContext();
+    mockClock->time_ = 1.0;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"foo"});
+    mockClock->time_ = 1.2;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"bar"});
+    mockClock->time_ = 1.3;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"bar"});
+    mockClock->time_ = 1.45;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"bar"});
+    mockClock->time_ = 1.5;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"bar"});
+    mockClock->time_ = 1.6;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"foo"});
+    mockClock->time_ = 1.7;
+    moonClock.StopInstrumentation();
+    (void)moonClock.GenerateReport();
+    mockClock->time_ = 1.8;
+    moonClock.StartInstrumentation(sharedLua);
+    context = moonClock.GetDefaultContext();
+    mockClock->time_ = 1.9;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"foo"});
+    mockClock->time_ = 2.0;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"bar"});
+    mockClock->time_ = 2.1;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"bar"});
+    mockClock->time_ = 2.2;
+    MoonClock::MoonClock::DefaultBeforeInstrument(lua, context, {"bar"});
+    mockClock->time_ = 2.3;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"bar"});
+    mockClock->time_ = 2.4;
+    MoonClock::MoonClock::DefaultAfterInstrument(lua, context, {"foo"});
+    mockClock->time_ = 2.5;
+    moonClock.StopInstrumentation();
+    const auto report = moonClock.GenerateReport();
+    EXPECT_EQ(
+        (std::map< MoonClock::Path, MoonClock::FunctionInformation >({
+            {{"foo"}, {1, 0.5, 0.5, 0.5, {{{"bar"}, {2, 0.2}}}}},
+            {{"bar"}, {2, 0.1, 0.2, 0.1, {}}},
+        })),
+        report.functionInfo
+    );
+    EXPECT_NEAR(0.7, report.totalTime, std::numeric_limits< decltype(report.totalTime) >::epsilon() * 2);
+}
+
 TEST_F(Moon_Clock_Tests, Default_Instruments_Recursion) {
     MoonClock::MoonClock moonClock;
     std::shared_ptr< lua_State > sharedLua(
