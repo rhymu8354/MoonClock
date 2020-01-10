@@ -314,7 +314,7 @@ namespace MoonClock {
          *     If the default instrumentation is used, SetClock must be
          *     called first to provide the means of measuring real time.
          *
-         * @parma[in,out] lua
+         * @param[in,out] lua
          *     This points to the Lua interpreter's state.
          *
          * @param[in] before

@@ -516,7 +516,7 @@ namespace MoonClock {
         /**
          * Attach instruments to all Lua functions.
          *
-         * @parma[in,out] lua
+         * @param[in,out] lua
          *     This points to the Lua interpreter's state.
          *
          * @param[in] before
